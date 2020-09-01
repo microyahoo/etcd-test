@@ -57,9 +57,10 @@ func (s *EtcdServer) RaftHandler() http.Handler { return s.r.transport.Handler()
 
 // ServerConfig holds the configuration of etcd as taken from the command line or discovery.
 type ServerConfig struct {
-	Name string
-	// ClientURLs types.URLs
-	PeerURLs types.URLs
+	Name       string
+	ClientURLs types.URLs
+	PeerURLs   types.URLs
+	DataDir    string
 
 	InitialPeerURLsMap  types.URLsMap
 	InitialClusterToken string

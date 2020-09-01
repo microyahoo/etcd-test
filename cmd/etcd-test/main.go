@@ -43,6 +43,7 @@ func main() {
 			InitialCluster:      initialCluster,
 			InitialClusterToken: initialClusterToken,
 			APUrls:              peerURLs,
+			LPUrls:              peerURLs,
 		}
 		e, err := embed.StartEtcd(config)
 		if err != nil {
@@ -64,6 +65,7 @@ func main() {
 			InitialCluster:      initialCluster,
 			InitialClusterToken: initialClusterToken,
 			APUrls:              peerURLs,
+			LPUrls:              peerURLs,
 		}
 		e, err := embed.StartEtcd(config)
 		if err != nil {
@@ -85,6 +87,7 @@ func main() {
 			InitialCluster:      initialCluster,
 			InitialClusterToken: initialClusterToken,
 			APUrls:              peerURLs,
+			LPUrls:              peerURLs,
 		}
 		e, err := embed.StartEtcd(config)
 		if err != nil {

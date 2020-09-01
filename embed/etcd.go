@@ -69,7 +69,7 @@ func configurePeerListeners(cfg *Config) (peers []*peerListener, err error) {
 			// }
 		}
 		peers[i] = &peerListener{close: func(context.Context) error { return nil }}
-		peers[i].Listener, err = rafthttp.NewListener(u, &cfg.PeerTLSInfo)
+		peers[i].Listener, err = rafthttp.NewListener(u)
 		if err != nil {
 			return nil, err
 		}
@@ -100,9 +100,9 @@ func StartEtcd(inCfg *Config) (e *Etcd, err error) {
 		Name:                inCfg.Name,
 		InitialPeerURLsMap:  urlsmap,
 		InitialClusterToken: inCfg.InitialClusterToken,
-		// ClientURLs:          inCfg.ACUrls,
-		PeerURLs: inCfg.APUrls,
-		// DataDir:             inCfg.Dir,
+		ClientURLs:          inCfg.ACUrls,
+		PeerURLs:            inCfg.APUrls,
+		DataDir:             inCfg.Dir,
 	}
 	if e.Server, err = etcdserver.NewServer(srvcfg); err != nil {
 		return e, err
