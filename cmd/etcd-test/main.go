@@ -2,13 +2,14 @@ package main
 
 import (
 	"fmt"
-	"log"
 	// "net/http"
 	"os"
 	"os/signal"
 	// "strconv"
 	// "strings"
 	// "time"
+
+	"go.uber.org/zap"
 
 	// "github.com/gogo/protobuf/proto"
 	// etcdpb "go.etcd.io/etcd/etcdserver/etcdserverpb"
@@ -19,6 +20,8 @@ import (
 	"github.com/microyahoo/etcd-test/rafthttp"
 )
 
+var logger, _ = zap.NewDevelopment()
+
 func main() {
 	// request := &etcdpb.Request{}
 	// fmt.Println(request.String())
@@ -27,29 +30,32 @@ func main() {
 	go func() {
 		initialCluster := "server1=http://127.0.0.1:12380,server2=http://127.0.0.1:22380,server3=http://127.0.0.1:32380"
 		urlsmap, err := types.NewURLsMap(initialCluster)
-		fmt.Printf("**urlMap = %#v\n", urlsmap)
+		logger.Info("**urlMap", zap.Any("urlMap", urlsmap))
 		if err != nil {
-			log.Panic(fmt.Sprintf("Failed to create new urls map: %s", err))
+			logger.Panic(fmt.Sprintf("Failed to create new urls map: %s", err))
 		}
 
 		initialAdvertisePeerUrls := "http://127.0.0.1:12380"
 		initialClusterToken := "etcd-cluster"
 		peerURLs, err := types.NewURLs([]string{initialAdvertisePeerUrls})
 		if err != nil {
-			log.Panic(fmt.Sprintf("Failed to create new urls: %s", err))
+			logger.Panic(fmt.Sprintf("Failed to create new urls: %s", err))
 		}
-		config := &embed.Config{
-			Name:                "server1",
-			InitialCluster:      initialCluster,
-			InitialClusterToken: initialClusterToken,
-			APUrls:              peerURLs,
-			LPUrls:              peerURLs,
-		}
+
+		config := embed.NewConfig()
+		config.Name = "server1"
+		config.InitialCluster = initialCluster
+		config.InitialClusterToken = initialClusterToken
+		config.APUrls = peerURLs
+		config.LPUrls = peerURLs
+		config.LogOutputs = []string{"logs/server1.log"}
+
 		e, err := embed.StartEtcd(config)
 		if err != nil {
-			log.Panic(fmt.Sprintf("Failed to create new server: %s", err))
+			logger.Panic(fmt.Sprintf("Failed to create new server: %s", err))
 		}
-		log.Printf(fmt.Sprintf("etcd: %#v", e))
+		logger.Info("etcd", zap.Any("etcd", e))
+		// https://github.com/tchap/zapext/blob/master/types/http_request.go
 	}()
 
 	go func() {
@@ -58,20 +64,22 @@ func main() {
 		initialClusterToken := "etcd-cluster"
 		peerURLs, err := types.NewURLs([]string{initialAdvertisePeerUrls})
 		if err != nil {
-			log.Panic(fmt.Sprintf("Failed to create new urls: %s", err))
+			logger.Panic(fmt.Sprintf("Failed to create new urls: %s", err))
 		}
-		config := &embed.Config{
-			Name:                "server1",
-			InitialCluster:      initialCluster,
-			InitialClusterToken: initialClusterToken,
-			APUrls:              peerURLs,
-			LPUrls:              peerURLs,
-		}
+
+		config := embed.NewConfig()
+		config.Name = "server2"
+		config.InitialCluster = initialCluster
+		config.InitialClusterToken = initialClusterToken
+		config.APUrls = peerURLs
+		config.LPUrls = peerURLs
+		config.LogOutputs = []string{"logs/server2.log"}
+
 		e, err := embed.StartEtcd(config)
 		if err != nil {
-			log.Panic(fmt.Sprintf("Failed to create new server: %s", err))
+			logger.Panic(fmt.Sprintf("Failed to create new server: %s", err))
 		}
-		log.Printf(fmt.Sprintf("etcd: %#v", e))
+		logger.Info("etcd", zap.Any("etcd", e))
 	}()
 
 	go func() {
@@ -80,20 +88,22 @@ func main() {
 		initialClusterToken := "etcd-cluster"
 		peerURLs, err := types.NewURLs([]string{initialAdvertisePeerUrls})
 		if err != nil {
-			log.Panic(fmt.Sprintf("Failed to create new urls: %s", err))
+			logger.Panic(fmt.Sprintf("Failed to create new urls: %s", err))
 		}
-		config := &embed.Config{
-			Name:                "server1",
-			InitialCluster:      initialCluster,
-			InitialClusterToken: initialClusterToken,
-			APUrls:              peerURLs,
-			LPUrls:              peerURLs,
-		}
+
+		config := embed.NewConfig()
+		config.Name = "server3"
+		config.InitialCluster = initialCluster
+		config.InitialClusterToken = initialClusterToken
+		config.APUrls = peerURLs
+		config.LPUrls = peerURLs
+		config.LogOutputs = []string{"logs/server3.log"}
+
 		e, err := embed.StartEtcd(config)
 		if err != nil {
-			log.Panic(fmt.Sprintf("Failed to create new server: %s", err))
+			logger.Panic(fmt.Sprintf("Failed to create new server: %s", err))
 		}
-		log.Printf(fmt.Sprintf("etcd: %#v", e))
+		logger.Info("etcd", zap.Any("etcd", e))
 	}()
 
 	//peerURL1 := "http://127.0.0.1:8081"
@@ -159,7 +169,7 @@ func main() {
 	signal.Notify(c, os.Interrupt)
 	go func() {
 		for sig := range c {
-			fmt.Fprintln(os.Stderr, "etcd stream: received signal:", sig)
+			logger.Warn("etcd stream: received signal", zap.Any("Signal", sig))
 			if os.Interrupt == sig {
 				//关闭退出
 				// tr1.Stop()

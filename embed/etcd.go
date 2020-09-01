@@ -2,10 +2,13 @@ package embed
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"net"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/microyahoo/etcd-test/etcdserver"
 	"github.com/microyahoo/etcd-test/etcdserver/etcdhttp"
@@ -15,11 +18,7 @@ import (
 
 // Etcd contains a running etcd server and its listeners.
 type Etcd struct {
-	Peers   []*peerListener
-	Clients []net.Listener
-	// a map of contexts for the servers that serves client requests.
-	// sctxs            map[string]*serveCtx
-	metricsListeners []net.Listener
+	Peers []*peerListener
 
 	Server *etcdserver.EtcdServer
 
@@ -40,7 +39,6 @@ type peerListener struct {
 func (e *Etcd) servePeers() (err error) {
 	etcdhttp.NewPeerHandler(e.Server)
 	return nil
-	// ph := etcdhttp.NewPeerHandler(e.Server)
 }
 
 func configurePeerListeners(cfg *Config) (peers []*peerListener, err error) {
@@ -51,7 +49,10 @@ func configurePeerListeners(cfg *Config) (peers []*peerListener, err error) {
 		}
 		for i := range peers {
 			if peers[i] != nil && peers[i].close != nil {
-				log.Printf("closing peer listener, address: %#v, err: %v", cfg.LPUrls[i].String(), err)
+				cfg.logger.Warn("closing peer listener",
+					zap.String("address", cfg.LPUrls[i].String()),
+					zap.Error(err),
+				)
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 				peers[i].close(ctx)
 				cancel()
@@ -60,14 +61,6 @@ func configurePeerListeners(cfg *Config) (peers []*peerListener, err error) {
 	}()
 
 	for i, u := range cfg.LPUrls {
-		if u.Scheme == "http" {
-			// if !cfg.PeerTLSInfo.Empty() {
-			// 	cfg.logger.Warn("scheme is HTTP while key and cert files are present; ignoring key and cert files", zap.String("peer-url", u.String()))
-			// }
-			// if cfg.PeerTLSInfo.ClientCertAuth {
-			// 	cfg.logger.Warn("scheme is HTTP while --peer-client-cert-auth is enabled; ignoring client cert auth for this URL", zap.String("peer-url", u.String()))
-			// }
-		}
 		peers[i] = &peerListener{close: func(context.Context) error { return nil }}
 		peers[i].Listener, err = rafthttp.NewListener(u)
 		if err != nil {
@@ -85,8 +78,15 @@ func configurePeerListeners(cfg *Config) (peers []*peerListener, err error) {
 // The returned Etcd.Server is not guaranteed to have joined the cluster. Wait
 // on the Etcd.Server.ReadyNotify() channel to know when it completes and is ready for use.
 func StartEtcd(inCfg *Config) (e *Etcd, err error) {
+	if err = inCfg.Validate(); err != nil {
+		return nil, err
+	}
+
 	e = &Etcd{cfg: *inCfg, stopc: make(chan struct{})}
 
+	e.cfg.logger.Info("configuring peer listeners",
+		zap.Strings("listen-peer-urls", e.cfg.getLPURLs()),
+	)
 	cfg := &e.cfg
 	if e.Peers, err = configurePeerListeners(cfg); err != nil {
 		return e, err
@@ -103,6 +103,8 @@ func StartEtcd(inCfg *Config) (e *Etcd, err error) {
 		ClientURLs:          inCfg.ACUrls,
 		PeerURLs:            inCfg.APUrls,
 		DataDir:             inCfg.Dir,
+		Logger:              inCfg.logger,
+		LoggerConfig:        inCfg.loggerConfig,
 	}
 	if e.Server, err = etcdserver.NewServer(srvcfg); err != nil {
 		return e, err
@@ -113,4 +115,25 @@ func StartEtcd(inCfg *Config) (e *Etcd, err error) {
 		return e, err
 	}
 	return e, nil
+}
+
+// MarshalLogObject implements zapcore.ObjectMarshaller interface.
+func (e *Etcd) MarshalLogObject(enc zapcore.ObjectEncoder) error {
+	if e == nil {
+		return nil
+	}
+
+	if err := enc.AddObject("Config", &e.cfg); err != nil {
+		fmt.Println("1", err)
+		return err
+	}
+	if err := enc.AddObject("Server", e.Server); err != nil {
+		fmt.Println("2", err)
+		return err
+	}
+	if err := enc.AddReflected("Peers", e.Peers); err != nil {
+		fmt.Println("3", err)
+		return err
+	}
+	return nil
 }

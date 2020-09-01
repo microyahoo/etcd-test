@@ -7,6 +7,8 @@ import (
 	"sort"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/microyahoo/etcd-test/pkg/types"
 )
 
@@ -25,6 +27,8 @@ type Attributes struct {
 
 // Member ...
 type Member struct {
+	lg *zap.Logger
+
 	ID types.ID `json:"id"`
 	RaftAttributes
 	Attributes
@@ -32,19 +36,20 @@ type Member struct {
 
 // NewMember creates a Member without an ID and generates one based on the
 // cluster name, peer URLs, and time. This is used for bootstrapping/adding new member.
-func NewMember(name string, peerURLs types.URLs, clusterName string, now *time.Time) *Member {
-	return newMember(name, peerURLs, clusterName, now)
+func NewMember(lg *zap.Logger, name string, peerURLs types.URLs, clusterName string, now *time.Time) *Member {
+	return newMember(lg, name, peerURLs, clusterName, now)
 }
 
-func newMember(name string, peerURLs types.URLs, clusterName string, now *time.Time) *Member {
+func newMember(lg *zap.Logger, name string, peerURLs types.URLs, clusterName string, now *time.Time) *Member {
 	m := &Member{
 		RaftAttributes: RaftAttributes{
 			PeerURLs: peerURLs.StringSlice(),
 		},
 		Attributes: Attributes{Name: name},
+		lg:         lg,
 	}
 
-	fmt.Printf("***peerURLs = %#v\n", peerURLs.StringSlice())
+	m.lg.Info("member peerURLs", zap.Any("url", peerURLs.StringSlice()))
 	var b []byte
 	sort.Strings(m.PeerURLs)
 	for _, p := range m.PeerURLs {

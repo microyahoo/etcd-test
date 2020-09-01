@@ -7,12 +7,17 @@ import (
 	"sort"
 	"sync"
 
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+
 	"github.com/microyahoo/etcd-test/pkg/types"
 	"github.com/microyahoo/etcd-test/raft"
 )
 
 // RaftCluster is a list of Members that belong to the same raft cluster
 type RaftCluster struct {
+	lg *zap.Logger
+
 	localID types.ID
 	cid     types.ID
 
@@ -20,8 +25,8 @@ type RaftCluster struct {
 	members    map[types.ID]*Member
 }
 
-func NewClusterFromMembers(id types.ID, membs []*Member) *RaftCluster {
-	c := NewCluster()
+func NewClusterFromMembers(lg *zap.Logger, id types.ID, membs []*Member) *RaftCluster {
+	c := NewCluster(lg)
 	c.cid = id
 	for _, m := range membs {
 		c.members[m.ID] = m
@@ -30,10 +35,10 @@ func NewClusterFromMembers(id types.ID, membs []*Member) *RaftCluster {
 }
 
 // NewClusterFromURLsMap creates a new raft cluster using provided urls map.
-func NewClusterFromURLsMap(token string, urlsmap types.URLsMap) (*RaftCluster, error) {
-	c := NewCluster()
+func NewClusterFromURLsMap(lg *zap.Logger, token string, urlsmap types.URLsMap) (*RaftCluster, error) {
+	c := NewCluster(lg)
 	for name, urls := range urlsmap {
-		m := NewMember(name, urls, token, nil)
+		m := NewMember(lg, name, urls, token, nil)
 		if _, ok := c.members[m.ID]; ok {
 			return nil, fmt.Errorf("member exists with identical ID %v", m)
 		}
@@ -46,8 +51,9 @@ func NewClusterFromURLsMap(token string, urlsmap types.URLsMap) (*RaftCluster, e
 	return c, nil
 }
 
-func NewCluster() *RaftCluster {
+func NewCluster(lg *zap.Logger) *RaftCluster {
 	return &RaftCluster{
+		lg:      lg,
 		members: make(map[types.ID]*Member),
 	}
 }
@@ -107,4 +113,23 @@ func (c *RaftCluster) MemberByName(name string) *Member {
 		}
 	}
 	return memb.Clone()
+}
+
+// localID types.ID
+// cid     types.ID
+// sync.Mutex // guards the fields below
+// members    map[types.ID]*Member
+
+// MarshalLogObject implements zapcore.ObjectMarshaller interface.
+func (s *RaftCluster) MarshalLogObject(enc zapcore.ObjectEncoder) error {
+	if s == nil {
+		return nil
+	}
+
+	enc.AddUint64("ClusterID", uint64(s.cid))
+	enc.AddUint64("LocalID", uint64(s.localID))
+	if err := enc.AddReflected("Members", s.members); err != nil {
+		return err
+	}
+	return nil
 }

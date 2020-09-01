@@ -4,6 +4,8 @@ import (
 	"log"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/microyahoo/etcd-test/raft"
 	"github.com/microyahoo/etcd-test/rafthttp"
 )
@@ -24,6 +26,7 @@ func newRaftNode(cfg raftNodeConfig) *raftNode {
 }
 
 type raftNodeConfig struct {
+	lg *zap.Logger
 	raft.Node
 	transport rafthttp.Transporter
 }

@@ -6,13 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/microyahoo/etcd-test/pkg/types"
 	pb "github.com/microyahoo/etcd-test/raft/raftpb"
@@ -57,6 +58,8 @@ type Transporter interface {
 }
 
 type Transport struct {
+	Logger *zap.Logger
+
 	ClusterID types.ID
 	ID        types.ID // local member ID  当前节点自己的ID
 
@@ -111,7 +114,7 @@ func (tr *Transport) AddPeer(id types.ID, peerURLs []string) {
 
 	urls, err := types.NewURLs(peerURLs)
 	if err != nil {
-		log.Panicf("failed new urls: %#v", peerURLs)
+		tr.Logger.Panic("failed new urls", zap.Any("peerURLs", peerURLs))
 	}
 	peer := startPeer(tr, urls, id)
 
@@ -121,7 +124,7 @@ func (tr *Transport) AddPeer(id types.ID, peerURLs []string) {
 }
 
 func (tr *Transport) Handler() http.Handler {
-	streamHandler := newStreamHandler(tr, tr.ID, tr.ClusterID)
+	streamHandler := newStreamHandler(tr, tr.Raft, tr.ID, tr.ClusterID)
 	mux := http.NewServeMux()
 	mux.Handle("/raft/stream/", streamHandler)
 	return mux
@@ -137,16 +140,20 @@ func (tr *Transport) Stop() {
 }
 
 type streamHandler struct {
+	lg  *zap.Logger
 	tr  *Transport //关联的rafthttp.Transport实例
 	id  types.ID   //当前节点ID
 	cid types.ID   //当前集群ID
+	r   Raft
 }
 
-func newStreamHandler(tr *Transport, id, cid types.ID) http.Handler {
+func newStreamHandler(tr *Transport, r Raft, id, cid types.ID) http.Handler {
 	return &streamHandler{
+		lg:  tr.Logger,
 		tr:  tr,
 		id:  id,
 		cid: cid,
+		r:   r,
 	}
 }
 
@@ -175,7 +182,8 @@ func (h *streamHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Stream handler: %#v, %s", r.URL.String(), r.Header)
+	h.lg.Info("Stream handler", zap.String("request.URL",
+		r.URL.String()), zap.Any("request.Header", r.Header))
 	w.WriteHeader(http.StatusOK) //返回状态码 200
 
 	w.(http.Flusher).Flush() //调用Flush()方法将响应数据发送到对端节点
@@ -210,6 +218,8 @@ func (n *CloseNotifier) Close() error {
 func (n *CloseNotifier) CloseNotify() <-chan struct{} { return n.done }
 
 type peer struct {
+	lg *zap.Logger
+
 	localID types.ID //当前节点ID
 	// id of the remote raft peer node
 	id types.ID //该peer实例对应的节点ID，对端ID
@@ -227,12 +237,21 @@ type peer struct {
 }
 
 func startPeer(t *Transport, peerUrls types.URLs, peerID types.ID) *peer {
+	if t.Logger != nil {
+		t.Logger.Info("starting remote peer", zap.String("remote-peer-id", peerID.String()))
+	}
+	defer func() {
+		if t.Logger != nil {
+			t.Logger.Info("started remote peer", zap.String("remote-peer-id", peerID.String()))
+		}
+	}()
 	r := t.Raft
 	pr := &peer{
+		lg:      t.Logger,
 		localID: t.ID,
 		id:      peerID,
 		r:       r,
-		writer:  newStreamWriter(t.ID, peerID),
+		writer:  newStreamWriter(t.Logger, t.ID, peerID),
 		recvc:   make(chan pb.Message, recvBufSize),
 		// msgc:         make(chan *Message, recvBufSize),
 		stopc: make(chan struct{}),
@@ -244,12 +263,12 @@ func startPeer(t *Transport, peerUrls types.URLs, peerID types.ID) *peer {
 	go func() {
 		for msg := range pr.recvc {
 			if err := r.Process(ctx, msg); err != nil {
-				log.Panicf("failed to process message: %s", err)
+				t.Logger.Warn("failed to process Raft message", zap.Error(err))
 			}
 			// select {
 			// case pr.writer.msgc <- msg:
 			// default:
-			// 	log.Printf("write to writer error msg is %v", msg)
+			// 	logger.Infof("write to writer error msg is %v", msg)
 			// }
 		}
 	}()
@@ -275,11 +294,13 @@ func (pr *peer) attachOutgoingConn(conn *outgoingConn) {
 	case pr.writer.connc <- conn:
 
 	default:
-		log.Printf("attachOutgoingConn error")
+		pr.lg.Info("attachOutgoingConn error")
 	}
 }
 
 type streamWriter struct {
+	lg *zap.Logger
+
 	localID types.ID //本端的ID
 	peerID  types.ID //对端节点的ID
 
@@ -293,8 +314,9 @@ type streamWriter struct {
 	stopc chan struct{}
 }
 
-func newStreamWriter(localID, peerID types.ID) *streamWriter {
+func newStreamWriter(lg *zap.Logger, localID, peerID types.ID) *streamWriter {
 	sw := &streamWriter{
+		lg:      lg,
 		localID: localID,
 		peerID:  peerID,
 		msgc:    make(chan pb.Message, streamBufSize),
@@ -324,16 +346,27 @@ func (sw *streamWriter) run() {
 	tickc := time.NewTicker(time.Second * 7) //发送心跳的定时器
 	defer tickc.Stop()
 
+	if sw.lg != nil {
+		sw.lg.Info(
+			"started stream writer with remote peer",
+			zap.String("local-member-id", sw.localID.String()),
+			zap.String("remote-peer-id", sw.peerID.String()),
+		)
+	}
+
 	for {
 		select {
 		case msg := <-msgc:
 			err := sw.enc.encode(&msg)
 			if err != nil {
-				log.Printf("Send to peer peerID is %d fail, error is: %v", sw.peerID, err)
+				sw.lg.Warn("Failed to send to peer peerID",
+					zap.String("remote-peer-id", sw.peerID.String()), zap.Error(err))
 			} else {
 				flusher.Flush()
-				log.Printf("Succeed to send message to peer peerID: %d, MsgType is: %s, MsgBody is: %s",
-					sw.peerID, msg.Type, msg.Body)
+				sw.lg.Info("Succeed to send message to peer peerID",
+					zap.String("message-type", msg.Type),
+					zap.String("message-body", msg.Body),
+					zap.String("remote-peer-id", sw.peerID.String()))
 			}
 
 		case <-heartbeatC: //向对端发送心跳消息
@@ -342,14 +375,15 @@ func (sw *streamWriter) run() {
 				Body: time.Now().Format("2006-01-02 15:04:05"),
 			})
 			if err != nil {
-				log.Printf("Send to peer heartbeat data fail, peerID is %d, error is %v",
-					sw.peerID, err)
+				sw.lg.Warn("Failed to send to peer peerID",
+					zap.String("remote-peer-id", sw.peerID.String()), zap.Error(err))
 			} else {
 				flusher.Flush()
-				log.Printf("Succeed to send heartbeat data to peer peerID: %d", sw.peerID)
+				sw.lg.Info("Succeed to send heartbeat data to peer peerID",
+					zap.String("remote-peer-id", sw.peerID.String()))
 			}
 		case conn := <-sw.connc:
-			log.Printf("Connection %#v is comming...", conn)
+			sw.lg.Info("Connection is comming...", zap.Any("connection", conn))
 			sw.enc = &messageEncoder{w: conn.Writer}
 			flusher = conn.Flusher
 			sw.closer = conn.Closer
@@ -357,7 +391,7 @@ func (sw *streamWriter) run() {
 			heartbeatC, msgc = tickc.C, sw.msgc
 
 		case <-sw.stopc:
-			log.Println("msgWriter stop!")
+			sw.lg.Info("msgWriter stop!")
 			sw.closer.Close()
 			return
 		}
@@ -369,6 +403,8 @@ func (sw *streamWriter) stop() {
 }
 
 type streamReader struct {
+	lg *zap.Logger
+
 	localID types.ID
 	peerID  types.ID   //对端节点的ID
 	tr      *Transport //关联的rafthttp.Transport实例
@@ -393,6 +429,7 @@ func newStreamReader(localID types.ID, pr *peer, peerURLs types.URLs, tr *Transp
 		recvc:  pr.recvc,
 		tr:     tr,
 		done:   make(chan struct{}),
+		lg:     tr.Logger,
 	}
 	go sr.run()
 
@@ -404,7 +441,9 @@ func (sr *streamReader) run() {
 	for {
 		readCloser, err := sr.dial()
 		if err != nil {
-			log.Printf("Dial peer error, peerID is %d, err is: %v", sr.peerID, err)
+			sr.lg.Warn("Dial peer error",
+				zap.String("remote-peer-id", sr.peerID.String()),
+				zap.Error(err))
 			time.Sleep(time.Second * 10)
 			continue
 		}
@@ -412,7 +451,9 @@ func (sr *streamReader) run() {
 
 		err = sr.decodeLoop(readCloser)
 		if err != nil {
-			log.Printf("DecodeLoop error, peerID is %d, error is %v", sr.peerID, err)
+			sr.lg.Warn("Decode loop error",
+				zap.String("remote-peer-id", sr.peerID.String()),
+				zap.Error(err))
 		}
 		sr.closer.Close()
 	}
@@ -428,7 +469,7 @@ func (sr *streamReader) dial() (io.ReadCloser, error) {
 
 	req.Header.Set("PeerID", fmt.Sprintf("%d", sr.localID))
 
-	log.Printf("Start to dial peer: %s", req.URL.String())
+	sr.lg.Info("Start to dial peer", zap.String("request-url", req.URL.String()))
 	resp, err := sr.tr.streamRt.RoundTrip(req)
 	if err != nil {
 		return nil, err
@@ -442,11 +483,16 @@ func (sr *streamReader) decodeLoop(rc io.ReadCloser) error {
 	for {
 		msg, err := dec.decode()
 		if err != nil {
-			log.Printf("\t**Read decodeLoop error, peerID is %d, err is %v", sr.peerID, err)
+			sr.lg.Warn("\t**Read decodeLoop error",
+				zap.String("remote-peer-id", sr.peerID.String()),
+				zap.Error(err))
 			continue
 		}
 
-		log.Printf("\t**Read from peer MsgType is %s, MsgBody is %s", msg.Type, msg.Body)
+		sr.lg.Info("\t Read from peer",
+			zap.String("message-type", msg.Type),
+			zap.String("message-body", msg.Body),
+			zap.String("remote-peer-id", sr.peerID.String()))
 		recvc := sr.recvc
 		select {
 		case recvc <- msg:
