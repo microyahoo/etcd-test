@@ -1,7 +1,6 @@
 package etcdserver
 
 import (
-	"log"
 	"time"
 
 	"go.uber.org/zap"
@@ -14,12 +13,15 @@ type apply struct {
 }
 
 type raftNode struct {
+	lg *zap.Logger
+
 	applyc chan apply
 	raftNodeConfig
 }
 
 func newRaftNode(cfg raftNodeConfig) *raftNode {
 	return &raftNode{
+		lg:             cfg.lg,
 		raftNodeConfig: cfg,
 		applyc:         make(chan apply),
 	}
@@ -36,7 +38,7 @@ func (r *raftNode) start() {
 		for {
 			select {
 			case rd := <-r.Ready():
-				log.Printf("Receive the ready: %#v\n", rd)
+				r.lg.Info("Receive the ready", zap.Any("ready", rd))
 				time.Sleep(5 * time.Second)
 			}
 		}

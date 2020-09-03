@@ -4,14 +4,17 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 
+	"github.com/soheilhy/cmux"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/microyahoo/etcd-test/etcdserver"
 	"github.com/microyahoo/etcd-test/etcdserver/etcdhttp"
+	"github.com/microyahoo/etcd-test/etcdserver/v3rpc"
 	"github.com/microyahoo/etcd-test/pkg/types"
 	"github.com/microyahoo/etcd-test/rafthttp"
 )
@@ -37,7 +40,52 @@ type peerListener struct {
 
 // configure peer handlers after rafthttp.Transport started
 func (e *Etcd) servePeers() (err error) {
-	etcdhttp.NewPeerHandler(e.Server)
+	ph := etcdhttp.NewPeerHandler(e.Server)
+
+	for _, p := range e.Peers {
+		// u := p.Listener.Addr().String()
+		gs := v3rpc.Server(e.Server)
+		m := cmux.New(p.Listener)
+		go gs.Serve(m.Match(cmux.HTTP2()))
+		srv := &http.Server{
+			Handler:     grpcHandlerFunc(gs, ph),
+			ReadTimeout: 5 * time.Minute,
+			// ErrorLog:    defaultLog.New(ioutil.Discard, "", 0), // do not log user error
+		}
+		go srv.Serve(m.Match(cmux.Any()))
+		p.serve = func() error { return m.Serve() }
+
+		// p.close = func(ctx context.Context) error {
+		// 	// gracefully shutdown http.Server
+		// 	// close open listeners, idle connections
+		// 	// until context cancel or time-out
+		// 	e.cfg.logger.Info(
+		// 		"stopping serving peer traffic",
+		// 		zap.String("address", u),
+		// 	)
+		// 	stopServers(ctx, &servers{secure: peerTLScfg != nil, grpc: gs, http: srv})
+		// 	e.cfg.logger.Info(
+		// 		"stopped serving peer traffic",
+		// 		zap.String("address", u),
+		// 	)
+		// 	return nil
+		// }
+
+	}
+
+	// start peer servers in a goroutine
+	for _, pl := range e.Peers {
+		go func(l *peerListener) {
+			u := l.Addr().String()
+			e.cfg.logger.Info(
+				"serving peer traffic",
+				zap.String("address", u),
+			)
+			err := l.serve()
+			e.cfg.logger.Warn("Failed to serve", zap.String("address", u), zap.Error(err))
+		}(pl)
+	}
+
 	return nil
 }
 
@@ -68,6 +116,14 @@ func configurePeerListeners(cfg *Config) (peers []*peerListener, err error) {
 		}
 		// once serve, overwrite with 'http.Server.Shutdown'
 		peers[i].close = func(context.Context) error {
+			u := peers[i].Listener.Addr().String()
+			cfg.logger.Info(
+				"stopping serving peer traffic",
+				zap.String("address", u),
+			)
+			defer func() {
+				cfg.logger.Info("stopped serving peer traffic", zap.String("address", u))
+			}()
 			return peers[i].Listener.Close()
 		}
 	}

@@ -114,7 +114,7 @@ func (tr *Transport) AddPeer(id types.ID, peerURLs []string) {
 
 	urls, err := types.NewURLs(peerURLs)
 	if err != nil {
-		tr.Logger.Panic("failed new urls", zap.Any("peerURLs", peerURLs))
+		tr.Logger.Panic("invalid urls", zap.Any("peerURLs", peerURLs))
 	}
 	peer := startPeer(tr, urls, id)
 
@@ -337,10 +337,8 @@ func (sw *streamWriter) writec() chan<- pb.Message {
 func (sw *streamWriter) run() {
 	var (
 		heartbeatC <-chan time.Time
-
-		flusher http.Flusher //负责刷新底层连接，将数据真正发送出去
-
-		msgc chan pb.Message
+		flusher    http.Flusher //负责刷新底层连接，将数据真正发送出去
+		msgc       chan pb.Message
 	)
 
 	tickc := time.NewTicker(time.Second * 7) //发送心跳的定时器
