@@ -1,16 +1,8 @@
 package raft
 
 import (
-	// "context"
-	// "log"
-
 	pb "github.com/microyahoo/etcd-test/raft/raftpb"
 )
-
-// // Raft defines ...
-// type Raft interface {
-// 	Process(ctx context.Context, m pb.Message) error
-// }
 
 // None is a placeholder node ID used when there is no leader.
 const None uint64 = 0

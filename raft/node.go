@@ -2,7 +2,8 @@ package raft
 
 import (
 	"context"
-	"log"
+
+	"go.uber.org/zap"
 
 	pb "github.com/microyahoo/etcd-test/raft/raftpb"
 )
@@ -22,8 +23,9 @@ type Node interface {
 
 type node struct {
 	readyc chan Ready
-	rn     *RawNode
 	recvc  chan pb.Message
+
+	rn *RawNode
 }
 
 func (n *node) Ready() <-chan Ready { return n.readyc }
@@ -53,7 +55,7 @@ func (n *node) run() {
 		}
 		select {
 		case readyc <- rd:
-			log.Printf("raft.node receive ready: %#v\n", rd)
+			n.rn.lg.Info("raft.node receive ready", zap.Any("ready", rd))
 			n.rn.acceptReady(rd)
 		case m := <-n.recvc:
 			r.Step(m)
@@ -82,8 +84,8 @@ type Ready struct {
 }
 
 // StartNode returns a new Node
-func StartNode() Node {
-	rn, err := NewRawNode()
+func StartNode(lg *zap.Logger) Node {
+	rn, err := NewRawNode(lg)
 	if err != nil {
 		panic(err)
 	}

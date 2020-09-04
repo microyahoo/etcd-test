@@ -133,7 +133,7 @@ func NewServer(cfg ServerConfig) (*EtcdServer, error) {
 
 func startNode(cfg ServerConfig, cl *RaftCluster) (types.ID, raft.Node) {
 	member := cl.MemberByName(cfg.Name)
-	return member.ID, raft.StartNode()
+	return member.ID, raft.StartNode(cfg.Logger)
 }
 
 // MarshalLogObject implements zapcore.ObjectMarshaller interface.

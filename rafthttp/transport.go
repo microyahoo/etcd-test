@@ -435,7 +435,6 @@ func newStreamReader(localID types.ID, pr *peer, peerURLs types.URLs, tr *Transp
 }
 
 func (sr *streamReader) run() {
-	// time.Sleep(time.Second * 5)
 	for {
 		readCloser, err := sr.dial()
 		if err != nil {
@@ -481,13 +480,13 @@ func (sr *streamReader) decodeLoop(rc io.ReadCloser) error {
 	for {
 		msg, err := dec.decode()
 		if err != nil {
-			sr.lg.Warn("\t**Read decodeLoop error",
+			sr.lg.Warn("Read decodeLoop error",
 				zap.String("remote-peer-id", sr.peerID.String()),
 				zap.Error(err))
 			continue
 		}
 
-		sr.lg.Info("\t Read from peer",
+		sr.lg.Info("Read from peer",
 			zap.String("message-type", msg.Type),
 			zap.String("message-body", msg.Body),
 			zap.String("remote-peer-id", sr.peerID.String()))

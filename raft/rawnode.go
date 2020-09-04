@@ -1,19 +1,22 @@
 package raft
 
 import (
-// "fmt"
+	"go.uber.org/zap"
 )
 
 // RawNode is a thread-unsafe Node.
 type RawNode struct {
 	raft *raft
+
+	lg *zap.Logger
 }
 
 // func NewRawNode(config *Config) (*RawNode, error) {
-func NewRawNode() (*RawNode, error) {
+func NewRawNode(lg *zap.Logger) (*RawNode, error) {
 	r := newRaft()
 	return &RawNode{
 		raft: r,
+		lg:   lg,
 	}, nil
 }
 
