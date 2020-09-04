@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -370,7 +370,7 @@ func (sw *streamWriter) run() {
 		case <-heartbeatC: //向对端发送心跳消息
 			err := sw.enc.encode(&pb.Message{
 				Type: pb.MsgTypeHeartbeat,
-				Body: time.Now().Format("2006-01-02 15:04:05"),
+				Body: fmt.Sprintf("%s-%d", time.Now().Format("2006-01-02 15:04:05"), rand.Int31()),
 			})
 			if err != nil {
 				sw.lg.Warn("Failed to send to peer peerID",
@@ -465,7 +465,8 @@ func (sr *streamReader) dial() (io.ReadCloser, error) {
 
 	req.Header.Set("PeerID", fmt.Sprintf("%d", sr.localID))
 
-	sr.lg.Info("Start to dial peer", zap.String("request-url", req.URL.String()))
+	sr.lg.Info("Start to dial peer", zap.String("request-url", req.URL.String()),
+		zap.Any("request-header", req.Header))
 	resp, err := sr.tr.streamRt.RoundTrip(req)
 	if err != nil {
 		return nil, err
@@ -547,17 +548,4 @@ func (dec *messageDecoder) decode() (pb.Message, error) {
 		return m, err
 	}
 	return m, nil
-}
-
-func getPid(purl string) int64 {
-	index := strings.LastIndex(purl, ":")
-	if index > 0 {
-		id, err := strconv.ParseInt(purl[index+1:], 10, 64)
-		if err != nil {
-			println(err)
-		}
-		return id
-	}
-
-	return 0
 }

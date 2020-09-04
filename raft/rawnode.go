@@ -20,16 +20,6 @@ func NewRawNode(lg *zap.Logger) (*RawNode, error) {
 	}, nil
 }
 
-// Ready returns the outstanding work that the application needs to handle. This
-// includes appending and applying entries or a snapshot, updating the HardState,
-// and sending messages. The returned Ready() *must* be handled and subsequently
-// passed back via Advance().
-func (rn *RawNode) Ready() Ready {
-	rd := rn.readyWithoutAccept()
-	rn.acceptReady(rd)
-	return rd
-}
-
 // readyWithoutAccept returns a Ready. This is a read-only operation, i.e. there
 // is no obligation that the Ready must be handled.
 func (rn *RawNode) readyWithoutAccept() Ready {
