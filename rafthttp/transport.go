@@ -459,7 +459,6 @@ func (sr *streamReader) run() {
 func (sr *streamReader) dial() (io.ReadCloser, error) {
 	u := sr.picker.pick()
 	req, err := http.NewRequest("GET", u.String()+"/raft/stream/dial", nil)
-	// req, err := http.NewRequest("GET", sr.peerURL+"/raft/stream/dial", nil)
 	if err != nil {
 		return nil, err
 	}
