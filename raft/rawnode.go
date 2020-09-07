@@ -12,11 +12,11 @@ type RawNode struct {
 }
 
 // func NewRawNode(config *Config) (*RawNode, error) {
-func NewRawNode(lg *zap.Logger) (*RawNode, error) {
-	r := newRaft()
+func NewRawNode(cfg *Config) (*RawNode, error) {
+	r := newRaft(cfg)
 	return &RawNode{
 		raft: r,
-		lg:   lg,
+		lg:   cfg.Logger,
 	}, nil
 }
 
@@ -30,6 +30,7 @@ func (rn *RawNode) readyWithoutAccept() Ready {
 // ahead and handle a Ready. Nothing must alter the state of the RawNode between
 // this call and the prior call to Ready().
 func (rn *RawNode) acceptReady(rd Ready) {
+	rn.lg.Info("clear the rawNode's messages", zap.Any("raft.msgs", rn.raft.msgs))
 	rn.raft.msgs = nil
 }
 
@@ -38,4 +39,13 @@ func (rn *RawNode) HasReady() bool {
 		return true
 	}
 	return false
+}
+
+// Advance notifies the RawNode that the application has applied and saved progress in the
+// last Ready results.
+func (rn *RawNode) Advance(rd Ready) {
+	// if !IsEmptyHardState(rd.HardState) {
+	// 	rn.prevHardSt = rd.HardState
+	// }
+	rn.raft.advance(rd)
 }

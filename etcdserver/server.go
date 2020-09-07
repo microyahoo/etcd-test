@@ -2,12 +2,14 @@ package etcdserver
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"sync"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/microyahoo/etcd-test/pkg/logutil"
 	"github.com/microyahoo/etcd-test/pkg/types"
 	"github.com/microyahoo/etcd-test/raft"
 	pb "github.com/microyahoo/etcd-test/raft/raftpb"
@@ -132,8 +134,22 @@ func NewServer(cfg ServerConfig) (*EtcdServer, error) {
 }
 
 func startNode(cfg ServerConfig, cl *RaftCluster) (types.ID, raft.Node) {
+	var err error
 	member := cl.MemberByName(cfg.Name)
-	return member.ID, raft.StartNode(cfg.Logger)
+	id := member.ID
+	c := &raft.Config{
+		ID: uint64(id),
+	}
+	if cfg.Logger != nil && cfg.LoggerConfig != nil {
+		c.Logger, err = logutil.NewRaftLogger(cfg.LoggerConfig)
+		if err != nil {
+			log.Fatalf("cannot create raft logger %v", err)
+		}
+	} else {
+		log.Fatalf("logger should not be null")
+	}
+
+	return id, raft.StartNode(c)
 }
 
 // MarshalLogObject implements zapcore.ObjectMarshaller interface.

@@ -38,8 +38,10 @@ func (r *raftNode) start() {
 		for {
 			select {
 			case rd := <-r.Ready():
-				r.lg.Info("Receive the ready", zap.Any("ready", rd))
-				time.Sleep(5 * time.Second)
+				r.lg.Info("Receive the ready, handle the messages", zap.Any("ready", rd))
+				time.Sleep(15 * time.Second)
+				r.lg.Info("Already handle the messages, notify the node", zap.Any("ready", rd))
+				r.Advance()
 			}
 		}
 	}()
